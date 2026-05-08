@@ -14,9 +14,9 @@ import Sidebar from './components/Sidebar';
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div>Loading...</div>;
-  return user ? <div className="flex bg-slate-50 min-h-screen">
+  return user ? <div className="flex flex-col lg:flex-row bg-slate-50 min-h-screen">
     <Sidebar />
-    <main className="flex-1 p-8 overflow-y-auto">{children}</main>
+    <main className="flex-1 p-4 md:p-8 pb-32 lg:pb-8 overflow-y-auto w-full">{children}</main>
   </div> : <Navigate to="/login" />;
 };
 

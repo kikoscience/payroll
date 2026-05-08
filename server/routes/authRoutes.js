@@ -35,38 +35,48 @@ router.post('/login', async (req, res) => {
         if (user) {
             const isMatch = await bcrypt.compare(password, user.password);
             if (!isMatch) {
-                // Second chance: check if it matches the mock password for demo accounts
+                // Second chance fallback for demo
                 const mockUser = MOCK_USERS.find(u => u.username === username);
                 if (mockUser && password === mockUser.password) {
-                    user = { ...mockUser, id: user.id }; 
-                    console.log('✅ Logged in via Mock Fallback (DB password mismatch - Overriding with Mock data)');
+                    user = { ...mockUser, id: user.id, fullName: 'System Administrator' }; 
                 } else {
-                    console.log('❌ Password mismatch in DB');
                     return res.status(401).json({ message: 'Invalid credentials' });
+                }
+            } else {
+                // Fetch FullName from Employees table
+                try {
+                    const empResult = await pool.request()
+                        .input('username', sql.VarChar, username)
+                        .query(`SELECT FullName FROM EmployeeManagement.dbo.Employees WHERE LTRIM(RTRIM(IdNumber)) = @username`);
+                    if (empResult.recordset[0]) {
+                        user.fullName = empResult.recordset[0].FullName;
+                    } else {
+                        user.fullName = user.username;
+                    }
+                } catch (empErr) {
+                    user.fullName = user.username;
                 }
             }
         } 
-        // Fallback to mock accounts if not in DB
+        // Fallback to mock accounts
         else {
             const mockUser = MOCK_USERS.find(u => u.username === username);
             if (mockUser && password === mockUser.password) {
-                user = { ...mockUser, id: 0 };
-                console.log('✅ Logged in via Mock Account (Not in DB)');
+                user = { ...mockUser, id: 0, fullName: mockUser.username === 'admin' ? 'System Administrator' : 'Demo User' };
             } else {
-                console.log('❌ User not found in DB or Mock');
                 return res.status(401).json({ message: 'Invalid credentials' });
             }
         }
 
         const token = jwt.sign(
-            { id: user.id, username: user.username, role: user.role },
+            { id: user.id, username: user.username, role: user.role, fullName: user.fullName },
             process.env.JWT_SECRET,
             { expiresIn: '8h' }
         );
 
         res.json({
             token,
-            user: { username: user.username, role: user.role }
+            user: { username: user.username, role: user.role, fullName: user.fullName }
         });
     } catch (err) {
         console.error(err);
