@@ -47,17 +47,40 @@ router.post('/', authenticateToken, authorizeRoles('admin', 'uploader'), async (
     }
 });
 
-// TOGGLE status
-router.patch('/:id/status', authenticateToken, authorizeRoles('admin', 'uploader'), async (req, res) => {
+// UPDATE label or status
+router.patch('/:id', authenticateToken, authorizeRoles('admin', 'uploader'), async (req, res) => {
+    const { label, status } = req.body;
+    try {
+        const pool = getPool();
+        if (label) {
+            await pool.request()
+                .input('id', sql.Int, req.params.id)
+                .input('label', sql.NVarChar, label)
+                .query('UPDATE BatchLabels SET label = @label WHERE id = @id');
+        }
+        if (status) {
+            await pool.request()
+                .input('id', sql.Int, req.params.id)
+                .input('status', sql.VarChar, status)
+                .query('UPDATE BatchLabels SET status = @status WHERE id = @id');
+        }
+        res.json({ message: 'Updated' });
+    } catch (err) {
+        console.error('BatchLabel PATCH Error:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// DELETE label
+router.delete('/:id', authenticateToken, authorizeRoles('admin', 'uploader'), async (req, res) => {
     try {
         const pool = getPool();
         await pool.request()
             .input('id', sql.Int, req.params.id)
-            .input('status', sql.VarChar, req.body.status)
-            .query('UPDATE BatchLabels SET status = @status WHERE id = @id');
-        res.json({ message: 'Updated' });
+            .query('DELETE FROM BatchLabels WHERE id = @id');
+        res.json({ message: 'Deleted' });
     } catch (err) {
-        console.error('BatchLabel PATCH Error:', err.message);
+        console.error('BatchLabel DELETE Error:', err.message);
         res.status(500).json({ message: err.message });
     }
 });
