@@ -11,6 +11,7 @@ const OtherReceivables = () => {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [selectedBatch, setSelectedBatch] = useState(null);
+  const [mainSearch, setMainSearch] = useState('');
 
   useEffect(() => { fetchBatches(); }, []);
 
@@ -24,7 +25,7 @@ const OtherReceivables = () => {
   };
 
   const handleDeleteBatch = async (id) => {
-    if (!window.confirm('DANGER: This will delete the ENTIRE batch and all its records. Confirm?')) return;
+    if (!window.confirm('DANGER: Delete ENTIRE batch and all its records?')) return;
     try {
       await axios.delete(`/api/payslips/batch/${id}`);
       fetchBatches();
@@ -41,6 +42,13 @@ const OtherReceivables = () => {
     a.download = 'other_receivables_template.csv';
     a.click();
   };
+
+  const filteredBatches = batches.filter(b => {
+    const name = String(b.batchName || '').toLowerCase();
+    const period = String(b.period || '').toLowerCase();
+    const search = mainSearch.toLowerCase();
+    return name.includes(search) || period.includes(search);
+  });
 
   return (
     <div className="space-y-8">
@@ -66,6 +74,17 @@ const OtherReceivables = () => {
         </div>
       </div>
 
+      <div className="relative max-w-md group">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 group-focus-within:text-indigo-500 transition-colors" />
+        <input 
+          type="text" 
+          placeholder="Search categories..." 
+          className="w-full pl-12 pr-4 py-3 bg-white border-2 border-slate-100 rounded-[20px] font-bold focus:outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50 transition-all shadow-sm"
+          value={mainSearch}
+          onChange={(e) => setMainSearch(e.target.value)}
+        />
+      </div>
+
       <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -81,10 +100,10 @@ const OtherReceivables = () => {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr><td colSpan="5" className="px-8 py-10 text-center text-slate-400">Loading batches...</td></tr>
-              ) : batches.length === 0 ? (
-                <tr><td colSpan="5" className="px-8 py-10 text-center text-slate-400 font-medium">No receivable batches found.</td></tr>
+              ) : filteredBatches.length === 0 ? (
+                <tr><td colSpan="5" className="px-8 py-10 text-center text-slate-400 font-medium">No results found.</td></tr>
               ) : (
-                batches.map((b) => (
+                filteredBatches.map((b) => (
                   <tr key={b.id} className="hover:bg-slate-50/50 group transition-all">
                     <td className="px-8 py-5">
                       <p className="font-bold text-slate-900">{b.batchName}</p>
@@ -122,7 +141,6 @@ const OtherReceivables = () => {
   );
 };
 
-// --- BATCH DETAILS MODAL ---
 const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -142,7 +160,7 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
   }, [batch]);
 
   const handleDeleteRecord = async (id) => {
-    if (!window.confirm('Delete this single record?')) return;
+    if (!window.confirm('Delete record?')) return;
     try {
       await axios.delete(`/api/payslips/${id}`);
       setRecords(records.filter(r => r.id !== id));
@@ -152,13 +170,13 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
 
   if (!batch) return null;
 
-  // Search Logic
-  const filteredRecords = records.filter(r => 
-    r.FullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.IdNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredRecords = records.filter(r => {
+    const fullName = String(r.FullName || '').toLowerCase();
+    const idNum = String(r.IdNumber || '').toLowerCase();
+    const search = searchTerm.toLowerCase();
+    return fullName.includes(search) || idNum.includes(search);
+  });
 
-  // Pagination Logic
   const indexOfLastRecord = currentPage * recordsPerPage;
   const indexOfFirstRecord = indexOfLastRecord - recordsPerPage;
   const currentRecords = filteredRecords.slice(indexOfFirstRecord, indexOfLastRecord);
@@ -167,26 +185,24 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-[40px] w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col h-[90vh]">
-        <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <div className="flex-1">
-            <h2 className="text-2xl font-black text-slate-900">{batch.batchName}</h2>
+        <div className="p-8 border-b border-slate-100 grid grid-cols-3 items-center bg-slate-50/50">
+          <div>
+            <h2 className="text-2xl font-black text-slate-900 leading-tight">{batch.batchName}</h2>
             <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest">{batch.period} • {records.length} Total Records</p>
           </div>
-
-          <div className="flex items-center gap-4 flex-1 justify-center">
-             <div className="relative w-full max-w-sm group">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 group-focus-within:text-indigo-500 transition-colors" />
+          <div className="flex justify-center">
+             <div className="relative w-full max-w-md group">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
                 <input 
                   type="text" 
-                  placeholder="Search name or ID..." 
-                  className="w-full pl-11 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-sm font-bold focus:outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400 transition-all"
+                  placeholder="Search Employee..." 
+                  className="w-full pl-11 pr-4 py-3 bg-white border-2 border-slate-200 rounded-2xl text-sm font-bold focus:outline-none focus:ring-4 focus:ring-indigo-50 focus:border-indigo-400 transition-all shadow-sm"
                   value={searchTerm}
                   onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                 />
              </div>
           </div>
-
-          <div className="flex items-center justify-end gap-3 flex-1">
+          <div className="flex items-center justify-end gap-4">
              <button onClick={() => { if(window.confirm('DELETE ENTIRE BATCH?')) { onDeleteBatch(batch.id); onClose(); } }} className="px-4 py-2 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase hover:bg-red-600 hover:text-white transition-all flex items-center gap-2">
                <Trash2 className="w-4 h-4" /> Delete Whole Batch
              </button>
@@ -209,11 +225,11 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
                {loading ? (
                  <tr><td colSpan="6" className="px-8 py-10 text-center text-slate-400 font-bold">Loading...</td></tr>
                ) : filteredRecords.length === 0 ? (
-                 <tr><td colSpan="6" className="px-8 py-20 text-center text-slate-400 font-bold">No results found for "{searchTerm}"</td></tr>
+                 <tr><td colSpan="6" className="px-8 py-10 text-center text-slate-400 font-bold">No results found</td></tr>
                ) : currentRecords.map(r => (
                  <tr key={r.id} className="hover:bg-slate-50/50 transition-all text-xs group">
                    <td className="px-8 py-4">
-                     <p className="font-bold text-slate-800">{r.FullName}</p>
+                     <p className="font-bold text-slate-800">{r.FullName || 'Unknown'}</p>
                      <p className="text-[10px] text-slate-400 font-mono">{r.IdNumber}</p>
                    </td>
                    <td className="px-8 py-4 text-right font-medium text-slate-500">₱{parseFloat(r.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
@@ -241,7 +257,7 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
                   {i + 1}
                 </button>
               ))}
-              <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => prev - 1)} className="p-2 bg-white border border-slate-200 rounded-xl disabled:opacity-30 rotate-180"><ChevronLeft className="w-5 h-5" /></button>
+              <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => prev + 1)} className="p-2 bg-white border border-slate-200 rounded-xl disabled:opacity-30 rotate-180"><ChevronLeft className="w-5 h-5" /></button>
            </div>
         </div>
       </motion.div>
@@ -258,7 +274,6 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
   );
 };
 
-// --- EDIT RECORD MODAL ---
 const EditRecordModal = ({ record, onClose, onSuccess }) => {
   const [formData, setFormData] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -290,7 +305,7 @@ const EditRecordModal = ({ record, onClose, onSuccess }) => {
         <form onSubmit={handleSubmit} className="p-8 space-y-5">
            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
               <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Employee</p>
-              <p className="font-bold text-slate-800">{record.FullName}</p>
+              <p className="font-bold text-slate-800">{record.FullName || 'Unknown'}</p>
               <p className="text-[10px] text-slate-400 font-mono">{record.IdNumber}</p>
            </div>
            <div className="grid grid-cols-2 gap-4">
@@ -318,7 +333,7 @@ const EditRecordModal = ({ record, onClose, onSuccess }) => {
               <textarea rows="2" className="input-field resize-none py-4" value={formData.description || ''} onChange={(e) => setFormData({...formData, description: e.target.value})} />
            </div>
            <div className="flex justify-end gap-3 pt-4">
-              <button type="button" onClick={onClose} className="px-6 py-3 font-bold text-slate-400">Cancel</button>
+              <button type="button" onClick={onClose} className="px-6 py-3 font-bold text-slate-400 hover:text-slate-900">Cancel</button>
               <button type="submit" disabled={saving} className="px-10 py-3 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-primary-200">
                 {saving ? 'Saving...' : 'Save Changes'}
               </button>
@@ -329,7 +344,6 @@ const EditRecordModal = ({ record, onClose, onSuccess }) => {
   );
 };
 
-// --- MANUAL ENTRY MODAL ---
 const ManualEntryModal = ({ isOpen, onClose, onSuccess }) => {
   const [formData, setFormData] = useState({ IdNumber: '', amount: '', tax: '0', voluntaryDeductions: '0', netAmountDue: '0', period: new Date().toISOString().split('T')[0], description: '', subType: '' });
   const [labels, setLabels] = useState([]);
@@ -418,7 +432,6 @@ const ManualEntryModal = ({ isOpen, onClose, onSuccess }) => {
   );
 };
 
-// --- UPLOAD MODAL ---
 const UploadModal = ({ isOpen, onClose, onSuccess }) => {
   const [csvData, setCsvData] = useState([]);
   const [labels, setLabels] = useState([]);
@@ -468,7 +481,6 @@ const UploadModal = ({ isOpen, onClose, onSuccess }) => {
         const net = cleanNumber(clean(col[4])); 
         return { IdNumber: clean(col[0]), amount: gross, tax: tax, voluntaryDeductions: ded, netAmountDue: net };
       });
-      console.log('Parsed Receivables Data:', parsed);
       setCsvData(parsed);
     };
     reader.readAsText(file);
@@ -496,7 +508,7 @@ const UploadModal = ({ isOpen, onClose, onSuccess }) => {
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-[40px] w-full max-w-2xl shadow-2xl overflow-hidden">
         <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
           <h2 className="text-2xl font-black text-slate-900">Upload Receivables Batch</h2>
-          <button onClick={onClose} className="p-2 text-slate-400">&times;</button>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-900">&times;</button>
         </div>
         <div className="p-8 space-y-6">
            <div className="grid grid-cols-2 gap-6">
@@ -528,7 +540,7 @@ const UploadModal = ({ isOpen, onClose, onSuccess }) => {
             </div>
            )}
            <div className="flex justify-end gap-4 pt-4">
-              <button onClick={onClose} className="px-6 py-3 text-sm font-black text-slate-500">Cancel</button>
+              <button onClick={onClose} className="px-6 py-3 text-sm font-black text-slate-500 hover:text-slate-900 transition-colors">Cancel</button>
               <button disabled={csvData.length === 0 || loading} onClick={handleSubmit} className="px-12 py-3 bg-indigo-600 text-white rounded-2xl font-black shadow-xl shadow-indigo-200">Upload Batch</button>
            </div>
         </div>
