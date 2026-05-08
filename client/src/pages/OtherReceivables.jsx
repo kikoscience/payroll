@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
-import { FileText, Plus, Search, Trash2, Upload, Download, Tag, Check, FileSpreadsheet, MessageSquare, Calendar, Eye, X, Edit2, Save, ChevronLeft } from 'lucide-react';
+import { FileText, Plus, Search, Trash2, Upload, Download, Tag, Check, FileSpreadsheet, MessageSquare, Calendar, Eye, X, Edit2, Save, ChevronLeft, UserPlus, Filter, Sparkles, AlertCircle } from 'lucide-react';
+import EmployeeModal from '../components/EmployeeModal';
+import { useToast } from '../context/ToastContext';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const OtherReceivables = () => {
   const { user } = useAuth();
+  const toast = useToast();
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -28,8 +31,9 @@ const OtherReceivables = () => {
     if (!window.confirm('DANGER: Delete ENTIRE batch and all its records?')) return;
     try {
       await axios.delete(`/api/payslips/batch/${id}`);
+      toast.success('Batch deleted');
       fetchBatches();
-    } catch (err) { alert('Error deleting'); }
+    } catch (err) { toast.error('Delete failed'); }
   };
 
   const downloadTemplate = () => {
@@ -142,39 +146,60 @@ const OtherReceivables = () => {
 };
 
 const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => {
+  const toast = useToast();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [editingRecord, setEditingRecord] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showUnregisteredOnly, setShowUnregisteredOnly] = useState(false);
+  const [isRegOpen, setIsRegOpen] = useState(false);
+  const [regId, setRegId] = useState('');
   const recordsPerPage = 20;
 
   useEffect(() => {
-    if (batch) {
-      setLoading(true);
-      axios.get(`/api/payslips?batchId=${batch.id}`).then(res => {
-        setRecords(res.data);
-        setLoading(false);
-      });
-    }
+    if (batch) { fetchRecords(); }
   }, [batch]);
+
+  const fetchRecords = async () => {
+    setLoading(true);
+    const res = await axios.get(`/api/payslips?batchId=${batch.id}`);
+    setRecords(res.data);
+    setLoading(false);
+  };
+
+  const handleCleanup = async () => {
+    if (!window.confirm('Delete all records with 0.00 Gross AND 0.00 Net?')) return;
+    try {
+      await axios.delete(`/api/payslips/batch/${batch.id}/cleanup`);
+      toast.success('Cleanup successful');
+      fetchRecords();
+      onDataChanged();
+    } catch (err) { toast.error('Cleanup failed'); }
+  };
 
   const handleDeleteRecord = async (id) => {
     if (!window.confirm('Delete record?')) return;
     try {
       await axios.delete(`/api/payslips/${id}`);
+      toast.success('Record deleted');
       setRecords(records.filter(r => r.id !== id));
       onDataChanged();
-    } catch (err) { alert('Error deleting'); }
+    } catch (err) { toast.error('Delete failed'); }
   };
 
   if (!batch) return null;
 
+  // BULLETPROOF FILTERING LOGIC: Using numeric isVerified flag
   const filteredRecords = records.filter(r => {
-    const fullName = String(r.FullName || '').toLowerCase();
-    const idNum = String(r.IdNumber || '').toLowerCase();
+    const isUnreg = r.isVerified === 0;
+    if (showUnregisteredOnly && !isUnreg) return false;
+
     const search = searchTerm.toLowerCase();
-    return fullName.includes(search) || idNum.includes(search);
+    const fName = String(r.FullName || '').toLowerCase();
+    const idStr = String(r.IdNumber || '').toLowerCase();
+
+    return fName.includes(search) || idStr.includes(search);
   });
 
   const indexOfLastRecord = currentPage * recordsPerPage;
@@ -182,16 +207,25 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
   const currentRecords = filteredRecords.slice(indexOfFirstRecord, indexOfLastRecord);
   const totalPages = Math.ceil(filteredRecords.length / recordsPerPage);
 
+  const unregisteredCount = records.filter(r => r.isVerified === 0).length;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-[40px] w-full max-w-6xl shadow-2xl overflow-hidden flex flex-col h-[90vh]">
-        <div className="p-8 border-b border-slate-100 grid grid-cols-3 items-center bg-slate-50/50">
+        <div className="p-8 border-b border-slate-100 grid grid-cols-1 md:grid-cols-3 items-center bg-slate-50/50 gap-4">
           <div>
             <h2 className="text-2xl font-black text-slate-900 leading-tight">{batch.batchName}</h2>
-            <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest">{batch.period} • {records.length} Total Records</p>
+            <div className="flex items-center gap-2 mt-1">
+               <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">{batch.period} • {records.length} Records</span>
+               {unregisteredCount > 0 && (
+                 <span className="px-2 py-0.5 bg-red-100 text-red-600 text-[9px] font-black rounded-full animate-pulse uppercase">
+                   {unregisteredCount} Unregistered
+                 </span>
+               )}
+            </div>
           </div>
-          <div className="flex justify-center">
-             <div className="relative w-full max-w-md group">
+          <div className="flex flex-col gap-2">
+             <div className="relative w-full group">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
                 <input 
                   type="text" 
@@ -201,8 +235,20 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
                   onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                 />
              </div>
+             <button 
+                onClick={() => {
+                   setShowUnregisteredOnly(!showUnregisteredOnly);
+                   setCurrentPage(1);
+                }}
+                className={`flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all border-2 ${showUnregisteredOnly ? 'bg-red-500 text-white border-red-500 shadow-lg shadow-red-200' : 'bg-white text-slate-400 border-slate-100'}`}
+             >
+                <Filter className="w-3 h-3" /> {showUnregisteredOnly ? 'Showing Unregistered Only' : 'Show All Records'}
+             </button>
           </div>
-          <div className="flex items-center justify-end gap-4">
+          <div className="flex items-center justify-end gap-3">
+             <button onClick={handleCleanup} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm" title="Remove zero-value rows">
+               <Sparkles className="w-4 h-4" />
+             </button>
              <button onClick={() => { if(window.confirm('DELETE ENTIRE BATCH?')) { onDeleteBatch(batch.id); onClose(); } }} className="px-4 py-2 bg-red-50 text-red-600 rounded-xl text-[10px] font-black uppercase hover:bg-red-600 hover:text-white transition-all flex items-center gap-2">
                <Trash2 className="w-4 h-4" /> Delete Whole Batch
              </button>
@@ -213,37 +259,54 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
            <table className="w-full text-left text-sm border-separate border-spacing-0">
              <thead className="bg-slate-50 sticky top-0 z-10 border-b">
                <tr className="text-slate-400 font-black uppercase tracking-widest text-[10px]">
-                 <th className="px-8 py-4 border-b">Employee</th>
+                 <th className="px-8 py-4 border-b">Employee Info</th>
                  <th className="px-8 py-4 text-right border-b">Gross</th>
-                 <th className="px-8 py-4 text-right border-b">Tax</th>
-                 <th className="px-8 py-4 text-right border-b">Deductions</th>
-                 <th className="px-8 py-4 text-right border-b">Net Due</th>
-                 <th className="px-8 py-4 border-b"></th>
+                 <th className="px-8 py-4 text-right border-b font-black text-slate-900">Net Due</th>
+                 <th className="px-8 py-4 text-center border-b">Status</th>
+                 <th className="px-8 py-4 text-right border-b">Actions</th>
                </tr>
              </thead>
              <tbody className="divide-y divide-slate-50">
                {loading ? (
                  <tr><td colSpan="6" className="px-8 py-10 text-center text-slate-400 font-bold">Loading...</td></tr>
-               ) : filteredRecords.length === 0 ? (
-                 <tr><td colSpan="6" className="px-8 py-10 text-center text-slate-400 font-bold">No results found</td></tr>
-               ) : currentRecords.map(r => (
-                 <tr key={r.id} className="hover:bg-slate-50/50 transition-all text-xs group">
-                   <td className="px-8 py-4">
-                     <p className="font-bold text-slate-800">{r.FullName || 'Unknown'}</p>
-                     <p className="text-[10px] text-slate-400 font-mono">{r.IdNumber}</p>
-                   </td>
-                   <td className="px-8 py-4 text-right font-medium text-slate-500">₱{parseFloat(r.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                   <td className="px-8 py-4 text-right font-medium text-red-400">₱{parseFloat(r.tax).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                   <td className="px-8 py-4 text-right font-medium text-red-500">₱{parseFloat(r.voluntaryDeductions).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                   <td className="px-8 py-4 text-right font-black text-indigo-600">₱{parseFloat(r.netAmountDue).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                   <td className="px-8 py-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button onClick={() => setEditingRecord(r)} className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Edit2 className="w-4 h-4" /></button>
-                        <button onClick={() => handleDeleteRecord(r.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                   </td>
-                 </tr>
-               ))}
+               ) : currentRecords.length === 0 ? (
+                 <tr><td colSpan="6" className="px-8 py-20 text-center text-slate-400 font-bold">No matching records found</td></tr>
+               ) : currentRecords.map(r => {
+                 const isUnreg = r.isVerified === 0;
+                 return (
+                   <tr key={r.id} className={`hover:bg-slate-50/50 transition-all text-xs group ${isUnreg ? 'bg-red-50/30' : ''}`}>
+                     <td className="px-8 py-4">
+                       <div className="flex items-center gap-2">
+                         <p className={`font-bold ${isUnreg ? 'text-red-500' : 'text-slate-800'}`}>
+                            {isUnreg ? 'NOT REGISTERED' : r.FullName}
+                         </p>
+                         {isUnreg && <AlertCircle className="w-3 h-3 text-red-400 animate-pulse" />}
+                       </div>
+                       <p className="text-[10px] text-slate-400 font-mono">{String(r.IdNumber || '')}</p>
+                     </td>
+                     <td className="px-8 py-4 text-right font-medium text-slate-500">₱{(parseFloat(r.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                     <td className="px-8 py-4 text-right font-black text-indigo-600 text-sm">₱{(parseFloat(r.netAmountDue) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                     <td className="px-8 py-4 text-center">
+                        {isUnreg ? (
+                          <button onClick={() => { setRegId(r.IdNumber); setIsRegOpen(true); }} className="px-3 py-1 bg-red-100 text-red-600 rounded-full text-[9px] font-black uppercase hover:bg-red-600 hover:text-white transition-all flex items-center gap-1 mx-auto">
+                            <UserPlus className="w-3 h-3" /> Register
+                          </button>
+                        ) : (
+                           <div className="flex flex-col items-center gap-0.5">
+                              <span className="px-3 py-1 bg-green-100 text-green-600 rounded-full text-[9px] font-black uppercase tracking-widest">Verified</span>
+                              <span className="text-[8px] text-slate-400 font-bold uppercase">Record Linked</span>
+                           </div>
+                        )}
+                     </td>
+                     <td className="px-8 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setEditingRecord(r)} className="p-2 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Edit2 className="w-4 h-4" /></button>
+                          <button onClick={() => handleDeleteRecord(r.id)} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                     </td>
+                   </tr>
+                 );
+               })}
              </tbody>
            </table>
         </div>
@@ -257,9 +320,19 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
                   {i + 1}
                 </button>
               ))}
-              <button disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => prev + 1)} className="p-2 bg-white border border-slate-200 rounded-xl disabled:opacity-30 rotate-180"><ChevronLeft className="w-5 h-5" /></button>
+              <button disabled={currentPage === totalPages || totalPages === 0} onClick={() => setCurrentPage(prev => prev + 1)} className="p-2 bg-white border border-slate-200 rounded-xl disabled:opacity-30 rotate-180"><ChevronLeft className="w-5 h-5" /></button>
            </div>
         </div>
+
+        <EmployeeModal 
+          isOpen={isRegOpen} 
+          onClose={() => setIsRegOpen(false)} 
+          onSuccess={() => {
+            fetchRecords();
+            onDataChanged();
+          }}
+          defaultId={regId}
+        />
       </motion.div>
 
       <EditRecordModal 
@@ -275,6 +348,7 @@ const BatchDetailsModal = ({ batch, onClose, onDataChanged, onDeleteBatch }) => 
 };
 
 const EditRecordModal = ({ record, onClose, onSuccess }) => {
+  const toast = useToast();
   const [formData, setFormData] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -287,9 +361,10 @@ const EditRecordModal = ({ record, onClose, onSuccess }) => {
     setSaving(true);
     try {
       await axios.put(`/api/payslips/${record.id}`, formData);
+      toast.success('Record updated');
       onSuccess(formData);
       onClose();
-    } catch (err) { alert('Save failed'); }
+    } catch (err) { toast.error('Update failed'); }
     finally { setSaving(false); }
   };
 
@@ -305,8 +380,8 @@ const EditRecordModal = ({ record, onClose, onSuccess }) => {
         <form onSubmit={handleSubmit} className="p-8 space-y-5">
            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
               <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Employee</p>
-              <p className="font-bold text-slate-800">{record.FullName || 'Unknown'}</p>
-              <p className="text-[10px] text-slate-400 font-mono">{record.IdNumber}</p>
+              <p className="font-bold text-slate-800">{String(record.FullName || 'Unregistered')}</p>
+              <p className="text-[10px] text-slate-400 font-mono">{String(record.IdNumber || '')}</p>
            </div>
            <div className="grid grid-cols-2 gap-4">
               <div>
@@ -345,6 +420,7 @@ const EditRecordModal = ({ record, onClose, onSuccess }) => {
 };
 
 const ManualEntryModal = ({ isOpen, onClose, onSuccess }) => {
+  const toast = useToast();
   const [formData, setFormData] = useState({ IdNumber: '', amount: '', tax: '0', voluntaryDeductions: '0', netAmountDue: '0', period: new Date().toISOString().split('T')[0], description: '', subType: '' });
   const [labels, setLabels] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -370,9 +446,10 @@ const ManualEntryModal = ({ isOpen, onClose, onSuccess }) => {
         period: formData.period,
         batchName: formData.subType + " (Single Entry)"
       });
+      toast.success('Entry added');
       onSuccess();
       onClose();
-    } catch (err) { alert('Error saving'); }
+    } catch (err) { toast.error('Save failed'); }
     finally { setLoading(false); }
   };
 
@@ -433,6 +510,7 @@ const ManualEntryModal = ({ isOpen, onClose, onSuccess }) => {
 };
 
 const UploadModal = ({ isOpen, onClose, onSuccess }) => {
+  const toast = useToast();
   const [csvData, setCsvData] = useState([]);
   const [labels, setLabels] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -495,9 +573,10 @@ const UploadModal = ({ isOpen, onClose, onSuccess }) => {
         globalSubType: subType,
         period: specificDate
       });
+      toast.success(`Uploaded ${csvData.length} records`);
       onSuccess();
       onClose();
-    } catch (err) { alert('Upload failed'); }
+    } catch (err) { toast.error('Upload failed'); }
     finally { setLoading(false); }
   };
 
@@ -535,7 +614,7 @@ const UploadModal = ({ isOpen, onClose, onSuccess }) => {
             </div>
            ) : (
             <div className="bg-slate-900 p-6 rounded-3xl text-white flex justify-between items-center shadow-lg">
-               <p className="text-2xl font-black">{csvData.length} Records Detected</p>
+               <p className="text-2xl font-black">{String(csvData.length)} Records Detected</p>
                <button onClick={() => setCsvData([])} className="text-sm font-bold text-indigo-400 hover:underline">Change</button>
             </div>
            )}

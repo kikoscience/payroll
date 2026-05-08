@@ -7,6 +7,7 @@ import taskRoutes from './routes/taskRoutes.js';
 import employeeRoutes from './routes/employeeRoutes.js';
 import payslipRoutes from './routes/payslipRoutes.js';
 import batchLabelRoutes from './routes/batchLabelRoutes.js';
+import userRoutes from './routes/userRoutes.js';
 
 dotenv.config();
 
@@ -28,6 +29,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/payslips', payslipRoutes);
 app.use('/api/batch-labels', batchLabelRoutes);
+app.use('/api/users', userRoutes);
 
 // Health Check
 app.get('/health', (req, res) => {

@@ -15,9 +15,17 @@ export const authenticateToken = (req, res, next) => {
 
 export const authorizeRoles = (...roles) => {
     return (req, res, next) => {
-        if (!roles.includes(req.user.role)) {
+        const userRole = (req.user?.role || '').trim().toLowerCase();
+        const authorizedRoles = roles.map(r => r.trim().toLowerCase());
+        
+        console.log(`🔐 Security Check | User: ${req.user?.username} | Role: "${userRole}" | Required: [${authorizedRoles.join(', ')}]`);
+
+        if (!authorizedRoles.includes(userRole)) {
+            console.log(`❌ Access Denied for ${req.user?.username}`);
             return res.status(403).json({ message: `Access Denied: Role '${req.user.role}' is not authorized` });
         }
+        
+        console.log(`✅ Access Granted for ${req.user?.username}`);
         next();
     };
 };

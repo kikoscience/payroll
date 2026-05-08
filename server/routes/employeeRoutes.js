@@ -1,4 +1,5 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import { sql, getPool } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 
@@ -59,10 +60,22 @@ router.post('/', authenticateToken, authorizeRoles('admin', 'uploader'), async (
         EmergencyContactPerson, EmergencyContactNumber, EmergencyContactAddress
     } = req.body;
 
+    const cleanId = String(IdNumber || '').trim();
+
     try {
         const pool = getPool();
+
+        // Check if ID already exists to provide a better error message
+        const check = await pool.request()
+            .input('IdNumber', sql.VarChar, cleanId)
+            .query(`SELECT IdNumber FROM ${EMP_TABLE} WHERE LTRIM(RTRIM(IdNumber)) = @IdNumber`);
+        
+        if (check.recordset.length > 0) {
+            return res.status(409).json({ message: `Employee ID "${cleanId}" already exists in the registry.` });
+        }
+
         await pool.request()
-            .input('IdNumber', sql.VarChar, IdNumber)
+            .input('IdNumber', sql.VarChar, cleanId)
             .input('FullName', sql.VarChar, FullName)
             .input('Position', sql.VarChar, Position)
             .input('Department', sql.VarChar, Department)
@@ -87,10 +100,30 @@ router.post('/', authenticateToken, authorizeRoles('admin', 'uploader'), async (
                 @EmergencyContactPerson, @EmergencyContactNumber, @EmergencyContactAddress
             )`);
 
-        res.status(201).json({ message: 'Employee created successfully' });
+        // AUTO-CREATE USER ACCOUNT
+        try {
+            const dob = new Date(DateOfBirth);
+            const passwordRaw = dob.getFullYear().toString() + 
+                               (dob.getMonth() + 1).toString().padStart(2, '0') + 
+                               dob.getDate().toString().padStart(2, '0');
+            const hashedPassword = await bcrypt.hash(passwordRaw, 10);
+
+            await pool.request()
+                .input('username', sql.NVarChar, cleanId)
+                .input('password', sql.NVarChar, hashedPassword)
+                .input('role', sql.NVarChar, 'viewer')
+                .query(`INSERT INTO Users (username, password, role) VALUES (@username, @password, @role)`);
+            
+            console.log(`Auto-Account Created: ${cleanId} / ${passwordRaw}`);
+        } catch (authErr) {
+            console.error('Account Creation Warning:', authErr.message);
+            // We don't fail the employee creation if user creation fails (e.g. user already exists)
+        }
+
+        res.status(201).json({ message: 'Employee created and account provisioned successfully' });
     } catch (err) {
         console.error('Create Error:', err.message);
-        res.status(500).json({ message: 'Error creating employee' });
+        res.status(500).json({ message: err.message || 'Error creating employee' });
     }
 });
 

@@ -42,28 +42,19 @@ const ensureColumns = async () => {
         ];
         
         for (const col of columns) {
-            // Using a more direct sys.columns check with explicit dbo schema
             await pool.request().query(`
-                IF NOT EXISTS (
-                    SELECT 1 FROM sys.columns 
-                    WHERE object_id = OBJECT_ID('dbo.Payslips') 
-                    AND name = '${col.name}'
-                )
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Payslips') AND name = '${col.name}')
                 BEGIN
-                    PRINT 'Adding column ${col.name}...'
                     ALTER TABLE dbo.Payslips ADD ${col.name} ${col.type};
                 END
             `);
         }
-        console.log('✅ Database Sync Complete: Payslips table is up to date.');
+        console.log('✅ Database Sync Complete.');
     } catch (err) {
         console.error('❌ Sync Failed:', err.message);
-        // Try again in 5 seconds if it failed (likely DB connection not ready)
         setTimeout(ensureColumns, 5000);
     }
 };
-
-// Start the sync process
 setTimeout(ensureColumns, 2000); 
 
 // GET all Batches
@@ -78,22 +69,32 @@ router.get('/batches', authenticateToken, async (req, res) => {
     } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// GET all payslips
+// GET all payslips with ROBUST TRIM JOIN & SEARCH SAFETY
 router.get('/', authenticateToken, async (req, res) => {
     const { search, batchId } = req.query;
     try {
         const pool = getPool();
+        const searchVal = `%${search || ''}%`;
+        
+        // COLLATED & TRIMMED JOIN with a dedicated verification flag
         let query = `
-            SELECT p.*, e.FullName 
+            SELECT p.*, e.FullName, 
+                   CASE WHEN e.IdNumber IS NULL THEN 0 ELSE 1 END as isVerified
             FROM Payslips p
-            LEFT JOIN ${EMP_TABLE} e ON p.IdNumber = e.IdNumber
-            WHERE (e.FullName LIKE @search OR p.IdNumber LIKE @search)
+            LEFT JOIN ${EMP_TABLE} e ON 
+                LTRIM(RTRIM(p.IdNumber)) COLLATE DATABASE_DEFAULT = 
+                LTRIM(RTRIM(e.IdNumber)) COLLATE DATABASE_DEFAULT
+            WHERE (p.batchId = @batchId OR @batchId IS NULL)
+            AND (
+                e.FullName LIKE @search 
+                OR p.IdNumber LIKE @search 
+                OR (e.IdNumber IS NULL AND @search = '%%')
+            )
+            ORDER BY p.uploadDate DESC
         `;
-        if (batchId) query += ` AND p.batchId = @batchId`;
-        query += ` ORDER BY p.uploadDate DESC`;
 
         const result = await pool.request()
-            .input('search', sql.VarChar, `%${search || ''}%`)
+            .input('search', sql.VarChar, searchVal)
             .input('batchId', sql.Int, batchId)
             .query(query);
         res.json(result.recordset);
@@ -178,6 +179,20 @@ router.post('/bulk', authenticateToken, authorizeRoles('admin', 'uploader'), asy
     } catch (err) { res.status(500).json({ message: 'Server Error: ' + err.message }); }
 });
 
+router.delete('/batch/:id/cleanup', authenticateToken, authorizeRoles('admin', 'uploader'), async (req, res) => {
+    try {
+        const pool = getPool();
+        const transaction = new sql.Transaction(pool);
+        await transaction.begin();
+        try {
+            await transaction.request().input('batchId', sql.Int, req.params.id).query(`DELETE FROM Payslips WHERE batchId = @batchId AND amount = 0 AND netAmountDue = 0`);
+            await transaction.request().input('batchId', sql.Int, req.params.id).query(`UPDATE PayrollBatches SET recordCount = (SELECT COUNT(*) FROM Payslips WHERE batchId = @batchId), totalAmount = ISNULL((SELECT SUM(netAmountDue) FROM Payslips WHERE batchId = @batchId), 0) WHERE id = @batchId`);
+            await transaction.commit();
+            res.json({ message: `Cleaned up zero-value records.` });
+        } catch (err) { await transaction.rollback(); throw err; }
+    } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
 router.put('/:id', authenticateToken, authorizeRoles('admin', 'uploader'), async (req, res) => {
     try {
         const p = req.body;
@@ -216,14 +231,12 @@ router.put('/:id', authenticateToken, authorizeRoles('admin', 'uploader'), async
                 .input('netAmountDue', sql.Decimal(18, 2), p.netAmountDue || 0)
                 .input('desc', sql.NVarChar, p.description || '')
                 .query(`
-                    UPDATE Payslips 
-                    SET 
+                    UPDATE Payslips SET 
                         salaries_si = @salaries_si, due_to_others_earnings = @due_to_others_earnings, absences = @absences, pera = @pera, sa = @sa, la = @la, hazard_pay = @hazard_pay, night_shift_differential = @night_shift_differential,
                         amount = @amount, tax = @tax, gsis_ps = @gsis_ps, gsis_conso_loan = @gsis_conso_loan, gsis_eml = @gsis_eml, gsis_policy_loan = @gsis_policy_loan, gfal = @gfal, gsis_mpl = @gsis_mpl, gsis_mpl_lite = @gsis_mpl_lite, gsis_cpl = @gsis_cpl,
                         pagibig_ps = @pagibig_ps, pagibig_mp2 = @pagibig_mp2, pagibig_mpl = @pagibig_mpl, pagibig_cal = @pagibig_cal, phic_ps = @phic_ps, lbp = @lbp, due_from_others = @due_from_others,
                         voluntaryDeductions = @voluntaryDeductions, netAmountDue = @netAmountDue, description = @desc 
-                    OUTPUT inserted.batchId
-                    WHERE id = @id
+                    OUTPUT inserted.batchId WHERE id = @id
                 `);
             const batchId = result.recordset[0]?.batchId;
             if (batchId) {
@@ -263,6 +276,29 @@ router.post('/wipe-all', authenticateToken, authorizeRoles('admin'), async (req,
         await pool.request().query('DELETE FROM Payslips; DELETE FROM PayrollBatches;');
         res.json({ message: 'Wiped' });
     } catch (err) { res.status(500).json({ message: err.message }); }
+});
+
+// GET personal records for the logged-in employee
+router.get('/my-records', authenticateToken, async (req, res) => {
+    try {
+        const pool = getPool();
+        const employeeId = req.user.username; // Username is the Employee ID
+
+        const result = await pool.request()
+            .input('employeeId', sql.VarChar, employeeId)
+            .query(`
+                SELECT p.*, b.batchName, b.period, b.batchType, b.uploadDate as postedDate
+                FROM Payslips p
+                JOIN PayrollBatches b ON p.batchId = b.id
+                WHERE LTRIM(RTRIM(p.IdNumber)) = @employeeId
+                ORDER BY b.uploadDate DESC
+            `);
+        
+        res.json(result.recordset);
+    } catch (err) {
+        console.error('Error fetching personal records:', err.message);
+        res.status(500).json({ message: 'Error fetching your records' });
+    }
 });
 
 export default router;

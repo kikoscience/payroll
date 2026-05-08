@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LayoutDashboard, Users, FileText, Settings, LogOut, Briefcase, BarChart, Layers, Tag } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Settings, LogOut, Briefcase, BarChart, Layers, Tag, User as UserIcon } from 'lucide-react';
 
 const Sidebar = () => {
   const { user, logout } = useAuth();
@@ -14,6 +14,10 @@ const Sidebar = () => {
     { name: 'Reports', icon: BarChart, path: '/reports' },
     { name: 'Payroll Settings', icon: Tag, path: '/payroll-settings' },
   ];
+
+  if (user?.role === 'admin') {
+    links.push({ name: 'Accounts', icon: UserIcon, path: '/accounts' });
+  }
 
   return (
     <div className="w-72 bg-white border-r border-slate-200 flex flex-col h-screen sticky top-0">
