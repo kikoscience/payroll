@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, Users, FileText, Settings, LogOut, 
-  Briefcase, BarChart, Layers, Tag, User as UserIcon, Menu, X 
+  Briefcase, BarChart, Layers, Tag, User as UserIcon, Menu, X, ShieldCheck 
 } from 'lucide-react';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,12 +19,15 @@ const Sidebar = () => {
     { name: 'Other Receivables', icon: FileText, path: '/other-receivables' },
     { name: 'Reports', icon: BarChart, path: '/reports' },
     { name: 'Payroll Settings', icon: Tag, path: '/payroll-settings' },
+    { name: 'Audit Logs', icon: ShieldCheck, path: '/audit' },
+    { name: 'Settings', icon: Settings, path: '/settings' },
   ];
 
   if (user?.role === 'viewer') {
     links = [
       { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
       { name: 'Payroll Tasks', icon: Briefcase, path: '/tasks' },
+      { name: 'Settings', icon: Settings, path: '/settings' },
     ];
   } else if (user?.role === 'admin') {
     links.push({ name: 'Accounts', icon: UserIcon, path: '/accounts' });
@@ -33,7 +36,7 @@ const Sidebar = () => {
   return (
     <>
       {/* --- DESKTOP SIDEBAR --- */}
-      <div className="hidden lg:flex w-72 bg-white border-r border-slate-200 flex-col h-screen sticky top-0">
+      <div className="hidden lg:flex w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex-col h-screen sticky top-0 transition-colors duration-300">
         <div className="p-8">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center shadow-lg shadow-primary-200">
@@ -86,14 +89,14 @@ const Sidebar = () => {
       </div>
 
       {/* --- MOBILE BOTTOM NAV (For Employees/General) --- */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-[100] bg-white/80 backdrop-blur-xl border-t border-slate-100 px-6 py-3 pb-8 flex justify-around items-center shadow-[0_-8px_30px_rgb(0,0,0,0.04)]">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-[100] bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-100 dark:border-slate-800 px-6 py-3 pb-8 flex justify-around items-center shadow-[0_-8px_30px_rgb(0,0,0,0.04)] transition-colors duration-300">
         {links.slice(0, 4).map((link) => (
           <NavLink
             key={link.path}
             to={link.path}
             className={({ isActive }) =>
               `flex flex-col items-center gap-1 transition-all ${
-                isActive ? 'text-primary-600 scale-110' : 'text-slate-400'
+                isActive ? 'text-primary-600' : 'text-slate-400 dark:text-slate-500'
               }`
             }
           >
@@ -105,7 +108,7 @@ const Sidebar = () => {
         {/* Mobile Menu Trigger */}
         <button 
           onClick={() => setIsOpen(true)}
-          className="flex flex-col items-center gap-1 text-slate-400"
+          className="flex flex-col items-center gap-1 text-slate-400 dark:text-slate-500"
         >
           <Menu className="w-6 h-6" />
           <span className="text-[9px] font-black uppercase tracking-widest">More</span>

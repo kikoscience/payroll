@@ -106,7 +106,12 @@ const PayrollTasks = () => {
                              {activeTab === 'Payroll' ? <Wallet className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}
                           </div>
                           <div>
-                             <p className="font-black text-slate-900 leading-tight">{r.batchName || r.description}</p>
+                             <div className="flex items-center gap-2">
+                                <p className="font-black text-slate-900 leading-tight">{r.batchName || r.description}</p>
+                                {new Date(r.postedDate) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) && (
+                                   <span className="px-2 py-0.5 bg-emerald-500 text-white text-[8px] font-black uppercase rounded-full animate-pulse">New</span>
+                                )}
+                             </div>
                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Posted {new Date(r.postedDate).toLocaleDateString()}</p>
                           </div>
                        </div>
@@ -149,7 +154,12 @@ const PayrollTasks = () => {
                      {activeTab === 'Payroll' ? <Wallet className="w-6 h-6" /> : <DollarSign className="w-6 h-6" />}
                   </div>
                   <div>
-                     <p className="font-black text-slate-900 leading-tight truncate max-w-[150px]">{r.batchName || r.description}</p>
+                     <div className="flex items-center gap-2">
+                        <p className="font-black text-slate-900 leading-tight truncate max-w-[120px]">{r.batchName || r.description}</p>
+                        {new Date(r.postedDate) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) && (
+                           <span className="px-2 py-0.5 bg-emerald-500 text-white text-[8px] font-black uppercase rounded-full animate-pulse">New</span>
+                        )}
+                     </div>
                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{activeTab === 'Payroll' ? r.period : new Date(r.postedDate).toLocaleDateString()}</p>
                      <p className="text-lg font-black text-slate-900 mt-1">₱{parseFloat(r.netAmountDue).toLocaleString()}</p>
                   </div>

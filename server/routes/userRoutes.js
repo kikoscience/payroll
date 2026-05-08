@@ -71,4 +71,38 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin'), async (req, re
     }
 });
 
+// CHANGE MY OWN PASSWORD - ANY LOGGED IN USER
+router.put('/me/password', authenticateToken, async (req, res) => {
+    const { oldPassword, newPassword } = req.body;
+    const userId = req.user.id;
+
+    try {
+        const pool = getPool();
+        
+        // 1. Get current user
+        const result = await pool.request()
+            .input('id', sql.Int, userId)
+            .query('SELECT password FROM Users WHERE id = @id');
+        
+        const user = result.recordset[0];
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        // 2. Verify old password
+        const isMatch = await bcrypt.compare(oldPassword, user.password);
+        if (!isMatch) return res.status(401).json({ message: 'Current password is incorrect' });
+
+        // 3. Hash and save new password
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await pool.request()
+            .input('id', sql.Int, userId)
+            .input('password', sql.NVarChar, hashedPassword)
+            .query('UPDATE Users SET password = @password WHERE id = @id');
+
+        res.json({ message: 'Password updated successfully' });
+    } catch (err) {
+        console.error('Password Change Error:', err.message);
+        res.status(500).json({ message: 'Error updating password' });
+    }
+});
+
 export default router;

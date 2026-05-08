@@ -1,6 +1,7 @@
 import express from 'express';
 import { sql, getPool } from '../db.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
+import { logAudit } from '../utils/audit.js';
 
 const router = express.Router();
 const EMP_TABLE = 'EmployeeManagement.dbo.Employees';
@@ -265,6 +266,9 @@ router.delete('/batch/:id', authenticateToken, authorizeRoles('admin', 'uploader
             await transaction.request().input('batchId', sql.Int, req.params.id).query('DELETE FROM Payslips WHERE batchId = @batchId');
             await transaction.request().input('id', sql.Int, req.params.id).query('DELETE FROM PayrollBatches WHERE id = @id');
             await transaction.commit();
+            
+            await logAudit(req.user.id, req.user.username, 'DELETE_BATCH', `Deleted payroll batch ID: ${req.params.id}`);
+            
             res.json({ message: 'Deleted' });
         } catch (err) { await transaction.rollback(); res.status(500).json({ message: err.message }); }
     } catch (err) { res.status(500).json({ message: err.message }); }
@@ -274,6 +278,9 @@ router.post('/wipe-all', authenticateToken, authorizeRoles('admin'), async (req,
     try {
         const pool = getPool();
         await pool.request().query('DELETE FROM Payslips; DELETE FROM PayrollBatches;');
+        
+        await logAudit(req.user.id, req.user.username, 'WIPE_DATABASE', 'Admin performed a master wipe of all payslips and batches.');
+        
         res.json({ message: 'Wiped' });
     } catch (err) { res.status(500).json({ message: err.message }); }
 });
@@ -298,6 +305,60 @@ router.get('/my-records', authenticateToken, async (req, res) => {
     } catch (err) {
         console.error('Error fetching personal records:', err.message);
         res.status(500).json({ message: 'Error fetching your records' });
+    }
+});
+
+// GET YEARLY SUMMARY FOR LOGGED IN EMPLOYEE
+router.get('/my-summary/:year', authenticateToken, async (req, res) => {
+    const { year } = req.params;
+    const idNumber = req.user.username;
+
+    try {
+        const pool = getPool();
+        const result = await pool.request()
+            .input('idNumber', sql.NVarChar, idNumber)
+            .input('year', sql.Int, parseInt(year))
+            .query(`
+                SELECT 
+                    ISNULL(SUM(
+                        ISNULL(amount, 0) + 
+                        ISNULL(salaries_si, 0) + 
+                        ISNULL(due_to_others_earnings, 0) + 
+                        ISNULL(pera, 0) + 
+                        ISNULL(sa, 0) + 
+                        ISNULL(la, 0) + 
+                        ISNULL(hazard_pay, 0) + 
+                        ISNULL(night_shift_differential, 0)
+                    ), 0) as totalGross,
+                    ISNULL(SUM(
+                        ISNULL(tax, 0) + 
+                        ISNULL(gsis_ps, 0) + 
+                        ISNULL(gsis_conso_loan, 0) + 
+                        ISNULL(gsis_eml, 0) + 
+                        ISNULL(gsis_policy_loan, 0) + 
+                        ISNULL(gfal, 0) + 
+                        ISNULL(gsis_mpl, 0) + 
+                        ISNULL(gsis_mpl_lite, 0) + 
+                        ISNULL(gsis_cpl, 0) + 
+                        ISNULL(pagibig_ps, 0) + 
+                        ISNULL(pagibig_mp2, 0) + 
+                        ISNULL(pagibig_mpl, 0) + 
+                        ISNULL(pagibig_cal, 0) + 
+                        ISNULL(phic_ps, 0) + 
+                        ISNULL(lbp, 0) + 
+                        ISNULL(due_from_others, 0) +
+                        ISNULL(absences, 0)
+                    ), 0) as totalDeductions,
+                    ISNULL(SUM(ISNULL(netAmountDue, 0)), 0) as totalNet
+                FROM Payslips
+                WHERE LTRIM(RTRIM(IdNumber)) = @idNumber
+                AND YEAR(postedDate) = @year
+            `);
+        
+        res.json(result.recordset[0] || { totalGross: 0, totalDeductions: 0, totalNet: 0 });
+    } catch (err) {
+        console.error('Summary Calculation Error:', err.message);
+        res.status(500).json({ message: 'Error calculating summary' });
     }
 });
 
